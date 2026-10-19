@@ -1,3 +1,6 @@
+from difflib import SequenceMatcher
+
+
 books = [
     "Worldly Light",
     "All the Light We Cannot See",
@@ -6,6 +9,10 @@ books = [
     "Normal People",
     "Conversations with Friends",
 ]
+
+
+def get_similarity(query, title):
+    return SequenceMatcher(None, query, title).ratio()
 
 
 def get_score(query, title):
@@ -20,15 +27,22 @@ def get_score(query, title):
     if title.startswith(query):
         return 80
 
-    # All query words appear somewhere in the title
     query_words = query.split()
+    title_words = title.split()
 
-    if all(word in title for word in query_words):
+    # All words from the search appear in the title
+    if all(word in title_words for word in query_words):
         return 60
 
-    # Weak partial match
+    # Part of the search appears in the title
     if query in title:
         return 40
+
+    # Check for spelling mistakes
+    similarity = get_similarity(query, title)
+
+    if similarity >= 0.60:
+        return 50 + (similarity * 30)
 
     return 0
 
@@ -55,7 +69,7 @@ if results:
     print("\nResults:")
 
     for book, score in results:
-        print(f"- {book} ({score})")
+        print(f"- {book} ({score:.1f})")
 
 else:
     print("\nNo books found.")
