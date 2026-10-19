@@ -1,228 +1,37 @@
-from difflib import SequenceMatcher
+import requests
 
 
-books = [
-    "Worldly Light",
-    "All the Light We Cannot See",
-    "The Light We Lost",
-    "Headlight",
-    "Normal People",
-    "Conversations with Friends",
-]
+def get_books(query):
+    url = "https://openlibrary.org/search.json"
 
+    params = {
+        "q": query,
+        "fields": "title,author_name,first_publish_year,key",
+        "limit": 10
+    }
 
-# Keys that are physically close to each other on a QWERTY keyboard
-keyboard_neighbors = {
-    "q": "wa",
-    "w": "qeasd",
-    "e": "wrsdf",
-    "r": "etdfg",
-    "t": "ryfgh",
-    "y": "tughj",
-    "u": "yihjk",
-    "i": "uojkl",
-    "o": "ipkl",
-    "p": "ol",
+    response = requests.get(url, params=params, timeout=10)
+    response.raise_for_status()
 
-    "a": "qwsz",
-    "s": "awedxz",
-    "d": "serfcx",
-    "f": "drtgvc",
-    "g": "ftyhbv",
-    "h": "gyujnb",
-    "j": "huikmn",
-    "k": "jiolm",
-    "l": "kop",
+    data = response.json()
 
-    "z": "asx",
-    "x": "zsdc",
-    "c": "xdfv",
-    "v": "cfgb",
-    "b": "vghn",
-    "n": "bhjm",
-    "m": "njk",
-}
+    return data["docs"]
 
 
-def substitution_cost(letter1, letter2):
-    if letter1 == letter2:
-        return 0
+query = input("Search for a book: ")
 
-    # Nearby keyboard mistake
-    if letter2 in keyboard_neighbors.get(letter1, ""):
-        return 0.25
+books = get_books(query)
 
-    # Normal wrong letter
-    return 1
+print("\nResults:")
 
+for book in books:
+    title = book.get("title", "Unknown title")
 
-def keyboard_distance(word1, word2):
-    rows = len(word1) + 1
-    columns = len(word2) + 1
+    authors = book.get("author_name", ["Unknown author"])
+    author = ", ".join(authors)
 
-    distance = []
+    year = book.get("first_publish_year", "Unknown year")
 
-    for i in range(rows):
-        row = []
-
-        for j in range(columns):
-            row.append(0)
-
-        distance.append(row)
-
-    # Cost of deleting letters
-    for i in range(rows):
-        distance[i][0] = i
-
-    # Cost of adding letters
-    for j in range(columns):
-        distance[0][j] = j
-
-    for i in range(1, rows):
-        for j in range(1, columns):
-
-            delete = distance[i - 1][j] + 1
-            insert = distance[i][j - 1] + 1
-
-            replace = (
-                distance[i - 1][j - 1]
-                + substitution_cost(word1[i - 1], word2[j - 1])
-            )
-
-            distance[i][j] = min(delete, insert, replace)
-
-    return distance[-1][-1]
-
-
-def keyboard_similarity(query, title):
-    distance = keyboard_distance(query, title)
-
-    longest_length = max(len(query), len(title))
-
-    if longest_length == 0:
-        return 1
-
-    return 1 - (distance / longest_length)
-
-
-def autocomplete(query, limit=5):
-    query = query.lower().strip()
-
-    if query == "":
-        return []
-
-    suggestions = []
-
-    for book in books:
-        title = book.lower()
-
-        # Perfect prefix match
-        if title.startswith(query):
-            score = 100
-
-        else:
-            # Compare the query with the same-sized
-            # beginning of the title
-            title_prefix = title[:len(query)]
-
-            normal_similarity = SequenceMatcher(
-                None,
-                query,
-                title_prefix
-            ).ratio()
-
-            key_similarity = keyboard_similarity(
-                query,
-                title_prefix
-            )
-
-            similarity = max(
-                normal_similarity,
-                key_similarity
-            )
-
-            if similarity >= 0.65:
-                score = similarity * 90
-            else:
-                continue
-
-        suggestions.append((book, score))
-
-    suggestions.sort(
-        key=lambda item: item[1],
-        reverse=True
-    )
-
-    return suggestions[:limit]
-
-
-def get_score(query, title):
-    query = query.lower().strip()
-    title = title.lower()
-
-    # Exact title
-    if query == title:
-        return 100
-
-    # Beginning of title
-    if title.startswith(query):
-        return 80
-
-    # All search words appear in title
-    query_words = query.split()
-
-    if all(word in title for word in query_words):
-        return 60
-
-    # Regular fuzzy similarity
-    normal_similarity = SequenceMatcher(
-        None,
-        query,
-        title
-    ).ratio()
-
-    # Keyboard-aware similarity
-    key_similarity = keyboard_similarity(query, title)
-
-    # Use whichever understands the query better
-    similarity = max(normal_similarity, key_similarity)
-
-    if similarity >= 0.60:
-        return 50 + (similarity * 30)
-
-    return 0
-
-
-def search_books(query):
-    results = []
-
-    for book in books:
-        score = get_score(query, book)
-
-        if score > 0:
-            results.append((book, score))
-
-    results.sort(
-        key=lambda item: item[1],
-        reverse=True
-    )
-
-    return results
-
-
-while True:
-    query = input("\nSearch for a book (or type 'quit'): ")
-
-    if query.lower() == "quit":
-        break
-
-    suggestions = autocomplete(query)
-
-    if suggestions:
-        print("\nSuggestions:")
-
-        for book, score in suggestions:
-            print(f"- {book} ({score:.1f})")
-
-    else:
-        print("\nNo suggestions found.")
+    print(f"- {title}")
+    print(f"  Author: {author}")
+    print(f"  First published: {year}")
