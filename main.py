@@ -105,6 +105,57 @@ def keyboard_similarity(query, title):
     return 1 - (distance / longest_length)
 
 
+def autocomplete(query, limit=5):
+    query = query.lower().strip()
+
+    if query == "":
+        return []
+
+    suggestions = []
+
+    for book in books:
+        title = book.lower()
+
+        # Perfect prefix match
+        if title.startswith(query):
+            score = 100
+
+        else:
+            # Compare the query with the same-sized
+            # beginning of the title
+            title_prefix = title[:len(query)]
+
+            normal_similarity = SequenceMatcher(
+                None,
+                query,
+                title_prefix
+            ).ratio()
+
+            key_similarity = keyboard_similarity(
+                query,
+                title_prefix
+            )
+
+            similarity = max(
+                normal_similarity,
+                key_similarity
+            )
+
+            if similarity >= 0.65:
+                score = similarity * 90
+            else:
+                continue
+
+        suggestions.append((book, score))
+
+    suggestions.sort(
+        key=lambda item: item[1],
+        reverse=True
+    )
+
+    return suggestions[:limit]
+
+
 def get_score(query, title):
     query = query.lower().strip()
     title = title.lower()
@@ -159,15 +210,19 @@ def search_books(query):
     return results
 
 
-query = input("Search for a book: ")
+while True:
+    query = input("\nSearch for a book (or type 'quit'): ")
 
-results = search_books(query)
+    if query.lower() == "quit":
+        break
 
-if results:
-    print("\nResults:")
+    suggestions = autocomplete(query)
 
-    for book, score in results:
-        print(f"- {book} ({score:.1f})")
+    if suggestions:
+        print("\nSuggestions:")
 
-else:
-    print("\nNo books found.")
+        for book, score in suggestions:
+            print(f"- {book} ({score:.1f})")
+
+    else:
+        print("\nNo suggestions found.")
