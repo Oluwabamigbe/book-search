@@ -156,16 +156,47 @@ def get_score(query, title):
 
     return 0
 
+def get_autocomplete_score(query, title):
+    query = normalize_text(query)
+    title = normalize_text(title)
 
-def request_books(params):
+    if not query or not title:
+        return 0
+
+    # Perfect beginning of title
+    if title.startswith(query):
+        return 100
+
+    # Query appears elsewhere in title
+    if query in title:
+        return 85
+
+    # Only compare the same-sized
+    # beginning of the title
+    title_prefix = title[:len(query)]
+
+    key_similarity = keyboard_similarity(
+        query,
+        title_prefix
+    )
+
+    # Only keep very close keyboard mistakes
+    if key_similarity >= 0.88:
+        return key_similarity * 90
+
+    return 0
+
+def request_books(params, limit=50):
     url = "https://openlibrary.org/search.json"
+
+    params = params.copy()
 
     params["fields"] = (
         "key,title,author_name,"
         "first_publish_year,edition_count"
     )
 
-    params["limit"] = 50
+    params["limit"] = limit
 
     response = requests.get(
         url,
@@ -177,6 +208,31 @@ def request_books(params):
 
     return response.json()["docs"]
 
+
+def get_autocomplete_candidates(query):
+    query = normalize_text(query)
+
+    if not query:
+        return []
+
+    words = query.split()
+
+    parts = []
+
+    for word in words:
+        part = (
+            f"(title_suggest:{word}* "
+            f"OR title:{word}*)"
+        )
+
+        parts.append(part)
+
+    solr_query = " AND ".join(parts)
+
+    return request_books(
+        {"q": solr_query},
+        limit=100
+    )
 
 def get_books(query):
     # General search
@@ -202,6 +258,64 @@ def get_books(query):
     return list(books.values())
 
 
+def add_books_to_cache(books, cache):
+    for book in books:
+        key = book.get("key")
+
+        if key:
+            cache[key] = book
+
+
+def autocomplete_books(query, cache):
+    query = query.strip()
+
+    if not query:
+        return []
+
+    # Try to get fresh candidates from Open Library
+    if len(query) >= 2:
+        try:
+            fresh_books = get_autocomplete_candidates(query)
+
+            add_books_to_cache(
+                fresh_books,
+                cache
+            )
+
+        except requests.RequestException:
+            # If the API fails, we can still use
+            # books already stored in our cache
+            pass
+
+    suggestions = []
+
+    for book in cache.values():
+        title = book.get("title", "")
+
+        score = get_autocomplete_score(
+            query,
+            title
+        )
+
+        if score > 0:
+            suggestions.append(
+                (book, score)
+            )
+
+    suggestions.sort(
+        key=lambda item: (
+            -item[1],
+            len(
+                normalize_text(
+                    item[0].get("title", "")
+                )
+            )
+        )
+    )
+
+    return suggestions[:5]
+
+
 def search_books(query):
     books = get_books(query)
 
@@ -223,29 +337,44 @@ def search_books(query):
     return results
 
 
-query = input("Search for a book: ")
+book_cache = {}
 
-results = search_books(query)
 
-print("\nOur ranked results:\n")
-
-for book, score in results[:10]:
-    title = book.get("title", "Unknown title")
-
-    authors = book.get(
-        "author_name",
-        ["Unknown author"]
+while True:
+    query = input(
+        "\nType a title "
+        "(or 'q' to stop): "
     )
 
-    author = ", ".join(authors)
+    if query.lower() == "q":
+        break
 
-    year = book.get(
-        "first_publish_year",
-        "Unknown year"
+    suggestions = autocomplete_books(
+        query,
+        book_cache
     )
 
-    print(f"{title}")
-    print(f"Author: {author}")
-    print(f"Year: {year}")
-    print(f"Search score: {score:.1f}")
-    print()
+    if suggestions:
+        print("\nSuggestions:")
+
+        for book, score in suggestions:
+            title = book.get(
+                "title",
+                "Unknown title"
+            )
+
+            authors = book.get(
+                "author_name",
+                ["Unknown author"]
+            )
+
+            author = ", ".join(authors)
+
+            print(
+                f"- {title} "
+                f"by {author} "
+                f"({score:.1f})"
+            )
+
+    else:
+        print("\nNo suggestions found.")
